@@ -196,7 +196,19 @@ with tab2:
         st.error(f"Erro ao processar dados. Erro: {e}")
 
 with tab3:
-    st.subheader("Parâmetros de Pontuação (Transparência Total)")
+    st.subheader("📜 Regras de Transparência")
+    
+    # --- NOVA TABELA DE FAIXAS DE BÔNUS ---
+    st.markdown("### 🎯 Faixas de Pontuação e Bônus")
+    faixas_data = {
+        "Pontuação Final": ["9.500 – 10.000", "9.000 – 9.499", "8.500 – 8.999", "8.000 – 8.499", "7.500 – 7.999", "< 7.500"],
+        "Percentual de Bônus": ["100%", "90%", "80%", "70%", "60%", "Sem Bônus"]
+    }
+    st.table(pd.DataFrame(faixas_data))
+    
+    st.markdown("---")
+    
+    st.markdown("### 📑 Matriz de Penalidades e Recuperação")
     st.write("Estes são os critérios acordados para a bonificação anual da Marcenaria.")
     st.dataframe(df_params, use_container_width=True, hide_index=True)
     
