@@ -67,32 +67,34 @@ def calcular_faixa_bonus(pontos):
     elif pontos >= 7500: return "60%"
     else: return "0% (Sem Bônus)"
 
-# 5. CARREGAR E ALIMENTAR PARAMETROS (Sem resumos, matriz completa)
-dados_params = ws_parametros.get_all_records()
+# 5. MATRIZ TÉCNICA COMPLETA (Sem resumos)
+MATRIZ_COMPLETA = [
+    ["1️⃣ Gestão Operacional", "Pedido entregue fora do prazo sem justificativa", -200],
+    ["1️⃣ Gestão Operacional", "Retrabalho causado por erro de gestão", -300],
+    ["1️⃣ Gestão Operacional", "Falta de material por falha de planejamento", -250],
+    ["1️⃣ Gestão Operacional", "Atraso em cronograma interno", -100],
+    ["2️⃣ Gestão de Pessoas", "Conflito de equipe não resolvido", -200],
+    ["2️⃣ Gestão de Pessoas", "Alta rotatividade no setor (acima da meta)", -300],
+    ["2️⃣ Gestão de Pessoas", "Falta injustificada de colaborador não gerenciada", -100],
+    ["2️⃣ Gestão de Pessoas", "Reclamação formal de colaborador confirmada", -200],
+    ["3️⃣ Processos e Organização", "Processo não seguido", -150],
+    ["3️⃣ Processos e Organização", "Falta de registro ou documentação", -100],
+    ["3️⃣ Processos e Organização", "Informação repassada errada entre setores", -150],
+    ["3️⃣ Processos e Organização", "Não participação em reuniões obrigatórias", -100],
+    ["4️⃣ Resultado do Setor", "Meta de produtividade não atingida", -400],
+    ["4️⃣ Resultado do Setor", "Desperdício acima do limite", -250],
+    ["4️⃣ Resultado do Setor", "Falha de qualidade detectada pelo cliente", -500],
+    ["🚀 Recuperação / Extra", "Redução de desperdício", 200],
+    ["🚀 Recuperação / Extra", "Melhoria de processo", 300],
+    ["🚀 Recuperação / Extra", "Meta superada", 400]
+]
 
-if not dados_params:
-    matriz_completa = [
-        ["1️⃣ Gestão Operacional", "Pedido entregue fora do prazo sem justificativa", -200],
-        ["1️⃣ Gestão Operacional", "Retrabalho causado por erro de gestão", -300],
-        ["1️⃣ Gestão Operacional", "Falta de material por falha de planejamento", -250],
-        ["1️⃣ Gestão Operacional", "Atraso em cronograma interno", -100],
-        ["2️⃣ Gestão de Pessoas", "Conflito de equipe não resolvido", -200],
-        ["2️⃣ Gestão de Pessoas", "Alta rotatividade no setor (acima da meta)", -300],
-        ["2️⃣ Gestão de Pessoas", "Falta injustificada de colaborador não gerenciada", -100],
-        ["2️⃣ Gestão de Pessoas", "Reclamação formal de colaborador confirmada", -200],
-        ["3️⃣ Processos e Organização", "Processo não seguido", -150],
-        ["3️⃣ Processos e Organização", "Falta de registro ou documentação", -100],
-        ["3️⃣ Processos e Organização", "Informação repassada errada entre setores", -150],
-        ["3️⃣ Processos e Organização", "Não participação em reuniões obrigatórias", -100],
-        ["4️⃣ Resultado do Setor", "Meta de produtividade não atingida", -400],
-        ["4️⃣ Resultado do Setor", "Desperdício acima do limite", -250],
-        ["4️⃣ Resultado do Setor", "Falha de qualidade detectada pelo cliente", -500],
-        ["🚀 Recuperação / Extra", "Redução de desperdício", 200],
-        ["🚀 Recuperação / Extra", "Melhoria de processo", 300],
-        ["🚀 Recuperação / Extra", "Meta superada", 400]
-    ]
-    for linha in matriz_completa:
-        ws_parametros.append_row(linha)
+# Verificar se a aba PARAMETROS precisa ser alimentada (força se houver menos de 10 itens)
+dados_params = ws_parametros.get_all_records()
+if len(dados_params) < 10:
+    ws_parametros.clear()
+    ws_parametros.append_row(["CATEGORIA", "SITUACAO", "PONTOS"])
+    ws_parametros.append_rows(MATRIZ_COMPLETA)
     dados_params = ws_parametros.get_all_records()
 
 df_params = pd.DataFrame(dados_params)
@@ -116,10 +118,12 @@ with tab1:
         acao_sel = st.selectbox("Selecione a Situação Específica", situacoes_filtradas['SITUACAO'].tolist())
     
     # Busca o ponto exato da situação escolhida
-    pontos_acao = int(df_params[df_params['SITUACAO'] == acao_sel]['PONTOS'].values[0])
-    tipo = "🔴 Penalidade" if pontos_acao < 0 else "🟢 Recuperação"
-    
-    st.info(f"**Impacto Financeiro:** {pontos_acao} pontos | **Tipo:** {tipo}")
+    try:
+        pontos_acao = int(df_params[df_params['SITUACAO'] == acao_sel]['PONTOS'].values[0])
+        tipo = "🔴 Penalidade" if pontos_acao < 0 else "🟢 Recuperação"
+        st.info(f"**Impacto Financeiro:** {pontos_acao} pontos | **Tipo:** {tipo}")
+    except:
+        st.warning("Selecione uma situação para ver o impacto.")
     
     obs = st.text_area("Descreva o motivo detalhado (Justificativa)")
     
@@ -127,7 +131,7 @@ with tab1:
         if g_sel != "Nenhum gestor cadastrado" and obs:
             data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
             ws_historico.append_row([data_hora, g_sel, cat_sel, acao_sel, pontos_acao, tipo, obs])
-            st.success("✅ Ocorrência registrada com sucesso!")
+            st.success("✅ Registro realizado com sucesso!")
         else:
             st.error("Por favor, selecione um gestor e preencha a justificativa.")
 
@@ -138,10 +142,8 @@ with tab2:
             df_h = pd.DataFrame(hist_total)
             resumo_final = []
             for g in gestores:
-                # Soma as perdas e ganhos (lembrando que perdas são números negativos)
                 soma_pontos = df_h[df_h['GESTOR'] == g]['PONTOS'].astype(int).sum()
                 pontuacao_final = 10000 + soma_pontos
-                # Garante que não ultrapasse 10.000 (teto) nem seja menor que 0
                 pontuacao_final = max(0, min(10000, pontuacao_final))
                 
                 resumo_final.append({
@@ -157,7 +159,7 @@ with tab2:
         else:
             st.info("Nenhum registro de pontuação foi encontrado.")
     except Exception as e:
-        st.error(f"Erro ao processar dados. Verifique a planilha HISTORICO. Erro: {e}")
+        st.error(f"Erro ao processar dados. Erro: {e}")
 
 with tab3:
     st.subheader("Parâmetros de Pontuação (Transparência Total)")
@@ -173,7 +175,7 @@ with tab3:
         if st.form_submit_button("Salvar Novo Parâmetro"):
             if n_sit:
                 ws_parametros.append_row([n_cat, n_sit, n_pts])
-                st.success("Novo parâmetro salvo! O sistema irá ler este dado no próximo lançamento.")
+                st.success("Novo parâmetro salvo! Reinicie o app para atualizar a lista.")
             else:
                 st.error("A descrição não pode estar vazia.")
 
