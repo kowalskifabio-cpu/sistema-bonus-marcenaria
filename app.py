@@ -141,10 +141,17 @@ with tab2:
         if hist_total:
             df_h = pd.DataFrame(hist_total)
             
-            # --- ÁREA DE RESUMO GERAL ---
-            st.subheader("🏆 Resumo de Pontuação")
+            # --- FILTRO DE ANÁLISE ---
+            st.subheader("🔍 Análise de Desempenho")
+            gestor_filtro = st.selectbox("Filtrar Dashboard por Gestor:", ["Selecione..."] + gestores)
+            
+            # Definir quais gestores serão mostrados no resumo
+            gestores_para_exibir = gestores if gestor_filtro == "Selecione..." else [gestor_filtro]
+            
+            # --- ÁREA DE RESUMO (Agora filtrada) ---
+            st.write("### 🏆 Resumo de Pontuação")
             resumo_final = []
-            for g in gestores:
+            for g in gestores_para_exibir:
                 soma_pontos = df_h[df_h['GESTOR'] == g]['PONTOS'].astype(int).sum()
                 pontuacao_final = 10000 + soma_pontos
                 pontuacao_final = max(0, min(10000, pontuacao_final))
@@ -159,16 +166,11 @@ with tab2:
             
             st.markdown("---")
             
-            # --- FILTRO E GRÁFICO DE ANÁLISE ---
-            st.subheader("🔍 Análise de Desempenho e Treinamento")
-            gestor_filtro = st.selectbox("Selecione o Gestor para análise detalhada:", ["Selecione..."] + gestores)
-            
+            # --- GRÁFICOS E HISTÓRICO (Só aparecem se um gestor for selecionado) ---
             if gestor_filtro != "Selecione...":
                 df_gestor = df_h[df_h['GESTOR'] == gestor_filtro].copy()
                 
                 if not df_gestor.empty:
-                    # Preparar dados para o gráfico (somar pontos negativos por categoria)
-                    # Filtramos apenas penalidades para focar onde o treinamento é necessário
                     df_perdas = df_gestor[df_gestor['PONTOS'] < 0].copy()
                     
                     if not df_perdas.empty:
@@ -176,16 +178,14 @@ with tab2:
                         analise_cat = df_perdas.groupby('CATEGORIA')['PONTOS'].sum().abs().reset_index()
                         analise_cat.columns = ['Categoria', 'Total de Pontos Perdidos']
                         
-                        # Exibir gráfico de barras do Streamlit
                         st.bar_chart(data=analise_cat, x='Categoria', y='Total de Pontos Perdidos')
                         
-                        # Mensagem de Treinamento Automática baseada no maior erro
                         maior_perda_cat = analise_cat.loc[analise_cat['Total de Pontos Perdidos'].idxmax(), 'Categoria']
                         st.warning(f"💡 **Foco de Treinamento:** O gestor apresenta maior fragilidade em **{maior_perda_cat}**. Recomenda-se revisão de processos nesta área.")
                     else:
                         st.success(f"O gestor {gestor_filtro} ainda não possui penalidades registradas!")
 
-                    st.markdown("#### Histórico de Lançamentos")
+                    st.markdown("#### Histórico Detalhado de Lançamentos")
                     st.dataframe(df_gestor.sort_index(ascending=False), use_container_width=True)
                 else:
                     st.info(f"O gestor {gestor_filtro} não possui histórico de lançamentos.")
