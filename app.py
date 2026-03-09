@@ -45,39 +45,20 @@ def conectar():
 
 sh = conectar()
 
-def get_ws(name):
-    try: return sh.worksheet(name)
-    except: 
+def get_ws(name, headers=None):
+    try:
+        return sh.worksheet(name)
+    except:
         ws = sh.add_worksheet(title=name, rows="1000", cols="10")
-        if name == "HISTORICO": ws.append_row(["DATA", "GESTOR", "CATEGORIA", "ACAO", "PONTOS", "TIPO", "OBS"])
+        if headers:
+            ws.append_row(headers)
         return ws
 
 ws_gestores = get_ws("GESTORES")
-ws_historico = get_ws("HISTORICO")
+ws_historico = get_ws("HISTORICO", ["DATA", "GESTOR", "CATEGORIA", "ACAO", "PONTOS", "TIPO", "OBS"])
+ws_parametros = get_ws("PARAMETROS", ["CATEGORIA", "SITUACAO", "PONTOS"])
 
-# 4. Regras de Negócio (Matriz que você definiu)
-MATRIZ = {
-    "1️⃣ Gestão Operacional": {
-        "Pedido fora do prazo": -200, "Retrabalho por erro gestão": -300, 
-        "Falta material planejamento": -250, "Atraso cronograma interno": -100
-    },
-    "2️⃣ Gestão de Pessoas": {
-        "Conflito não resolvido": -200, "Alta rotatividade": -300, 
-        "Falta não gerenciada": -100, "Reclamação formal": -200
-    },
-    "3️⃣ Processos e Organização": {
-        "Processo não seguido": -150, "Falta documentação": -100, 
-        "Erro informação entre setores": -150, "Falta reunião obrigatória": -100
-    },
-    "4️⃣ Resultado do Setor": {
-        "Meta produtividade não atingida": -400, "Desperdício acima limite": -250, 
-        "Falha qualidade cliente": -500
-    },
-    "🚀 Recuperação / Extra": {
-        "Redução de desperdício": 200, "Melhoria de processo": 300, "Meta superada": 400
-    }
-}
-
+# 4. Funções de Apoio
 def calcular_faixa_bonus(pontos):
     if pontos >= 9500: return "100%"
     elif pontos >= 9000: return "90%"
@@ -86,58 +67,85 @@ def calcular_faixa_bonus(pontos):
     elif pontos >= 7500: return "60%"
     else: return "0% (Sem Bônus)"
 
+# --- CARREGAR PARAMETROS DA PLANILHA ---
+dados_params = ws_parametros.get_all_records()
+if not dados_params:
+    # Se estiver vazio, carrega o padrão inicial que você definiu
+    padrao = [
+        ["1️⃣ Gestão Operacional", "Pedido fora do prazo", -200],
+        ["2️⃣ Gestão de Pessoas", "Conflito não resolvido", -200],
+        ["🚀 Recuperação / Extra", "Redução de desperdício", 200]
+    ]
+    for p in padrao: ws_parametros.append_row(p)
+    dados_params = ws_parametros.get_all_records()
+
+df_params = pd.DataFrame(dados_params)
+
 # --- INTERFACE ---
 st.title("🛠️ Sistema de Performance Marcenaria")
 
-tab1, tab2 = st.tabs(["📝 Lançamentos", "📊 Dashboard de Bônus"])
+tab1, tab2, tab3 = st.tabs(["📝 Lançamentos", "📊 Dashboard", "📜 Parâmetros Transparentes"])
 
 with tab1:
     col1, col2 = st.columns(2)
     with col1:
         gestores = [r[0] for r in ws_gestores.get_all_values() if r]
-        g_sel = st.selectbox("Selecione o Gestor", gestores if gestores else ["Cadastre na lateral"])
+        g_sel = st.selectbox("Gestor", gestores if gestores else ["Cadastre na lateral"])
     
     with col2:
-        cat_sel = st.selectbox("Categoria", list(MATRIZ.keys()))
-        acao_sel = st.selectbox("Ação/Ocorrência", list(MATRIZ[cat_sel].keys()))
+        categorias = df_params['CATEGORIA'].unique()
+        cat_sel = st.selectbox("Categoria", categorias)
+        
+        situacoes_filtradas = df_params[df_params['CATEGORIA'] == cat_sel]
+        acao_sel = st.selectbox("Situação", situacoes_filtradas['SITUACAO'].tolist())
     
-    pontos_acao = MATRIZ[cat_sel][acao_sel]
+    pontos_acao = int(df_params[df_params['SITUACAO'] == acao_sel]['PONTOS'].values[0])
     tipo = "🔴 Penalidade" if pontos_acao < 0 else "🟢 Recuperação"
     st.info(f"Impacto: {pontos_acao} pontos ({tipo})")
     
-    obs = st.text_area("Observações (Obrigatório)")
+    obs = st.text_area("Observações")
     
     if st.button("Confirmar Registro", type="primary"):
         if g_sel != "Cadastre na lateral" and obs:
             data = datetime.now().strftime("%d/%m/%Y %H:%M")
             ws_historico.append_row([data, g_sel, cat_sel, acao_sel, pontos_acao, tipo, obs])
-            st.success("Salvo com sucesso!")
-            st.balloons()
+            st.success("✅ Registro realizado com sucesso!")
         else:
-            st.error("Preencha o nome do gestor e a observação!")
+            st.error("Preencha todos os campos!")
 
 with tab2:
-    hist = ws_historico.get_all_records()
-    if hist:
-        df = pd.DataFrame(hist)
-        resumo = []
-        for g in gestores:
-            total_pontos = 10000 + df[df['GESTOR'] == g]['PONTOS'].astype(int).sum()
-            total_pontos = min(10000, total_pontos) # Limite máximo é 10k
-            resumo.append({
-                "Gestor": g,
-                "Pontuação Final": total_pontos,
-                "Bônus Pago": calcular_faixa_bonus(total_pontos)
-            })
-        st.table(pd.DataFrame(resumo))
-        st.write("### Últimos Lançamentos")
-        st.dataframe(df.tail(10))
-    else:
-        st.info("Nenhum dado registrado ainda.")
+    try:
+        hist = ws_historico.get_all_records()
+        if hist:
+            df_h = pd.DataFrame(hist)
+            resumo = []
+            for g in gestores:
+                pontos_perdi = df_h[df_h['GESTOR'] == g]['PONTOS'].astype(int).sum()
+                saldo = min(10000, 10000 + pontos_perdi)
+                resumo.append({"Gestor": g, "Pontuação": saldo, "Bônus": calcular_faixa_bonus(saldo)})
+            st.table(pd.DataFrame(resumo))
+        else:
+            st.info("Sem histórico registrado.")
+    except:
+        st.error("Erro ao ler histórico. Verifique os cabeçalhos da planilha.")
+
+with tab3:
+    st.subheader("Transparência: Regras de Pontuação")
+    st.dataframe(df_params, use_container_width=True)
+    
+    st.markdown("---")
+    st.subheader("➕ Cadastrar Nova Regra/Situação")
+    with st.expander("Clique para expandir"):
+        new_cat = st.selectbox("Nova Categoria", ["1️⃣ Gestão Operacional", "2️⃣ Gestão de Pessoas", "3️⃣ Processos e Organização", "4️⃣ Resultado do Setor", "🚀 Recuperação / Extra"])
+        new_sit = st.text_input("Nome da Situação (Ex: Atraso de entrega)")
+        new_pts = st.number_input("Pontuação (Negativo para perda, Positivo para ganho)", step=50)
+        if st.button("Salvar Nova Regra"):
+            ws_parametros.append_row([new_cat, new_sit, new_pts])
+            st.success("Regra cadastrada! Atualize a página.")
 
 with st.sidebar:
     st.header("Admin")
-    novo_g = st.text_input("Cadastrar Novo Gestor")
-    if st.button("Salvar"):
+    novo_g = st.text_input("Novo Gestor")
+    if st.button("Salvar Gestor"):
         ws_gestores.append_row([novo_g])
         st.rerun()
