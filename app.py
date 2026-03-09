@@ -140,6 +140,9 @@ with tab2:
         hist_total = ws_historico.get_all_records()
         if hist_total:
             df_h = pd.DataFrame(hist_total)
+            
+            # --- ÁREA DE RESUMO GERAL ---
+            st.subheader("🏆 Resumo de Pontuação")
             resumo_final = []
             for g in gestores:
                 soma_pontos = df_h[df_h['GESTOR'] == g]['PONTOS'].astype(int).sum()
@@ -154,8 +157,20 @@ with tab2:
             
             st.table(pd.DataFrame(resumo_final))
             
-            with st.expander("Ver Histórico Recente de Lançamentos"):
-                st.dataframe(df_h.tail(20), use_container_width=True)
+            st.markdown("---")
+            
+            # --- FILTRO DE HISTÓRICO ---
+            st.subheader("🔍 Filtrar Histórico Detalhado")
+            gestor_filtro = st.selectbox("Filtrar por Gestor para ver detalhes:", ["Todos"] + gestores)
+            
+            if gestor_filtro == "Todos":
+                df_filtrado = df_h
+            else:
+                df_filtrado = df_h[df_h['GESTOR'] == gestor_filtro]
+            
+            st.write(f"Exibindo {len(df_filtrado)} registros:")
+            st.dataframe(df_filtrado.sort_index(ascending=False), use_container_width=True)
+            
         else:
             st.info("Nenhum registro de pontuação foi encontrado.")
     except Exception as e:
