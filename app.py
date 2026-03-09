@@ -7,16 +7,16 @@ from datetime import datetime
 # 1. Configuração da página
 st.set_page_config(page_title="Gestão de Bônus Marcenaria", layout="wide")
 
-# Esconder menus
+# Esconder menus para privacidade total
 st.markdown("<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}</style>", unsafe_allow_html=True)
 
-# 2. Login
+# 2. Sistema de Login
 if "password_correct" not in st.session_state:
     st.session_state["password_correct"] = False
 
 if not st.session_state["password_correct"]:
-    st.title("🔐 Acesso Restrito")
-    senha = st.text_input("Senha", type="password")
+    st.title("🔐 Acesso Restrito - Marcenaria")
+    senha = st.text_input("Senha de Acesso", type="password")
     if st.button("Entrar"):
         if senha == st.secrets["general"]["password"]:
             st.session_state["password_correct"] = True
@@ -58,7 +58,7 @@ ws_gestores = get_ws("GESTORES")
 ws_historico = get_ws("HISTORICO", ["DATA", "GESTOR", "CATEGORIA", "ACAO", "PONTOS", "TIPO", "OBS"])
 ws_parametros = get_ws("PARAMETROS", ["CATEGORIA", "SITUACAO", "PONTOS"])
 
-# 4. Funções de Apoio
+# 4. Funções de Cálculo de Bônus (Sua Matriz de Faixas)
 def calcular_faixa_bonus(pontos):
     if pontos >= 9500: return "100%"
     elif pontos >= 9000: return "90%"
@@ -67,16 +67,32 @@ def calcular_faixa_bonus(pontos):
     elif pontos >= 7500: return "60%"
     else: return "0% (Sem Bônus)"
 
-# --- CARREGAR PARAMETROS DA PLANILHA ---
+# 5. CARREGAR E ALIMENTAR PARAMETROS (Sem resumos, matriz completa)
 dados_params = ws_parametros.get_all_records()
+
 if not dados_params:
-    # Se estiver vazio, carrega o padrão inicial que você definiu
-    padrao = [
-        ["1️⃣ Gestão Operacional", "Pedido fora do prazo", -200],
-        ["2️⃣ Gestão de Pessoas", "Conflito não resolvido", -200],
-        ["🚀 Recuperação / Extra", "Redução de desperdício", 200]
+    matriz_completa = [
+        ["1️⃣ Gestão Operacional", "Pedido entregue fora do prazo sem justificativa", -200],
+        ["1️⃣ Gestão Operacional", "Retrabalho causado por erro de gestão", -300],
+        ["1️⃣ Gestão Operacional", "Falta de material por falha de planejamento", -250],
+        ["1️⃣ Gestão Operacional", "Atraso em cronograma interno", -100],
+        ["2️⃣ Gestão de Pessoas", "Conflito de equipe não resolvido", -200],
+        ["2️⃣ Gestão de Pessoas", "Alta rotatividade no setor (acima da meta)", -300],
+        ["2️⃣ Gestão de Pessoas", "Falta injustificada de colaborador não gerenciada", -100],
+        ["2️⃣ Gestão de Pessoas", "Reclamação formal de colaborador confirmada", -200],
+        ["3️⃣ Processos e Organização", "Processo não seguido", -150],
+        ["3️⃣ Processos e Organização", "Falta de registro ou documentação", -100],
+        ["3️⃣ Processos e Organização", "Informação repassada errada entre setores", -150],
+        ["3️⃣ Processos e Organização", "Não participação em reuniões obrigatórias", -100],
+        ["4️⃣ Resultado do Setor", "Meta de produtividade não atingida", -400],
+        ["4️⃣ Resultado do Setor", "Desperdício acima do limite", -250],
+        ["4️⃣ Resultado do Setor", "Falha de qualidade detectada pelo cliente", -500],
+        ["🚀 Recuperação / Extra", "Redução de desperdício", 200],
+        ["🚀 Recuperação / Extra", "Melhoria de processo", 300],
+        ["🚀 Recuperação / Extra", "Meta superada", 400]
     ]
-    for p in padrao: ws_parametros.append_row(p)
+    for linha in matriz_completa:
+        ws_parametros.append_row(linha)
     dados_params = ws_parametros.get_all_records()
 
 df_params = pd.DataFrame(dados_params)
@@ -84,68 +100,87 @@ df_params = pd.DataFrame(dados_params)
 # --- INTERFACE ---
 st.title("🛠️ Sistema de Performance Marcenaria")
 
-tab1, tab2, tab3 = st.tabs(["📝 Lançamentos", "📊 Dashboard", "📜 Parâmetros Transparentes"])
+tab1, tab2, tab3 = st.tabs(["📝 Lançar Ocorrência", "📊 Dashboard de Bônus", "📜 Matriz de Transparência"])
 
 with tab1:
     col1, col2 = st.columns(2)
     with col1:
         gestores = [r[0] for r in ws_gestores.get_all_values() if r]
-        g_sel = st.selectbox("Gestor", gestores if gestores else ["Cadastre na lateral"])
+        g_sel = st.selectbox("Selecione o Gestor", gestores if gestores else ["Nenhum gestor cadastrado"])
     
     with col2:
         categorias = df_params['CATEGORIA'].unique()
-        cat_sel = st.selectbox("Categoria", categorias)
+        cat_sel = st.selectbox("Selecione a Categoria", categorias)
         
         situacoes_filtradas = df_params[df_params['CATEGORIA'] == cat_sel]
-        acao_sel = st.selectbox("Situação", situacoes_filtradas['SITUACAO'].tolist())
+        acao_sel = st.selectbox("Selecione a Situação Específica", situacoes_filtradas['SITUACAO'].tolist())
     
+    # Busca o ponto exato da situação escolhida
     pontos_acao = int(df_params[df_params['SITUACAO'] == acao_sel]['PONTOS'].values[0])
     tipo = "🔴 Penalidade" if pontos_acao < 0 else "🟢 Recuperação"
-    st.info(f"Impacto: {pontos_acao} pontos ({tipo})")
     
-    obs = st.text_area("Observações")
+    st.info(f"**Impacto Financeiro:** {pontos_acao} pontos | **Tipo:** {tipo}")
     
-    if st.button("Confirmar Registro", type="primary"):
-        if g_sel != "Cadastre na lateral" and obs:
-            data = datetime.now().strftime("%d/%m/%Y %H:%M")
-            ws_historico.append_row([data, g_sel, cat_sel, acao_sel, pontos_acao, tipo, obs])
-            st.success("✅ Registro realizado com sucesso!")
+    obs = st.text_area("Descreva o motivo detalhado (Justificativa)")
+    
+    if st.button("Gravar Registro na Planilha", type="primary"):
+        if g_sel != "Nenhum gestor cadastrado" and obs:
+            data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
+            ws_historico.append_row([data_hora, g_sel, cat_sel, acao_sel, pontos_acao, tipo, obs])
+            st.success("✅ Ocorrência registrada com sucesso!")
         else:
-            st.error("Preencha todos os campos!")
+            st.error("Por favor, selecione um gestor e preencha a justificativa.")
 
 with tab2:
     try:
-        hist = ws_historico.get_all_records()
-        if hist:
-            df_h = pd.DataFrame(hist)
-            resumo = []
+        hist_total = ws_historico.get_all_records()
+        if hist_total:
+            df_h = pd.DataFrame(hist_total)
+            resumo_final = []
             for g in gestores:
-                pontos_perdi = df_h[df_h['GESTOR'] == g]['PONTOS'].astype(int).sum()
-                saldo = min(10000, 10000 + pontos_perdi)
-                resumo.append({"Gestor": g, "Pontuação": saldo, "Bônus": calcular_faixa_bonus(saldo)})
-            st.table(pd.DataFrame(resumo))
+                # Soma as perdas e ganhos (lembrando que perdas são números negativos)
+                soma_pontos = df_h[df_h['GESTOR'] == g]['PONTOS'].astype(int).sum()
+                pontuacao_final = 10000 + soma_pontos
+                # Garante que não ultrapasse 10.000 (teto) nem seja menor que 0
+                pontuacao_final = max(0, min(10000, pontuacao_final))
+                
+                resumo_final.append({
+                    "Gestor": g,
+                    "Pontuação Atual": pontuacao_final,
+                    "Faixa de Bônus": calcular_faixa_bonus(pontuacao_final)
+                })
+            
+            st.table(pd.DataFrame(resumo_final))
+            
+            with st.expander("Ver Histórico Recente de Lançamentos"):
+                st.dataframe(df_h.tail(20), use_container_width=True)
         else:
-            st.info("Sem histórico registrado.")
-    except:
-        st.error("Erro ao ler histórico. Verifique os cabeçalhos da planilha.")
+            st.info("Nenhum registro de pontuação foi encontrado.")
+    except Exception as e:
+        st.error(f"Erro ao processar dados. Verifique a planilha HISTORICO. Erro: {e}")
 
 with tab3:
-    st.subheader("Transparência: Regras de Pontuação")
-    st.dataframe(df_params, use_container_width=True)
+    st.subheader("Parâmetros de Pontuação (Transparência Total)")
+    st.write("Estes são os critérios acordados para a bonificação anual da Marcenaria.")
+    st.dataframe(df_params, use_container_width=True, hide_index=True)
     
     st.markdown("---")
-    st.subheader("➕ Cadastrar Nova Regra/Situação")
-    with st.expander("Clique para expandir"):
-        new_cat = st.selectbox("Nova Categoria", ["1️⃣ Gestão Operacional", "2️⃣ Gestão de Pessoas", "3️⃣ Processos e Organização", "4️⃣ Resultado do Setor", "🚀 Recuperação / Extra"])
-        new_sit = st.text_input("Nome da Situação (Ex: Atraso de entrega)")
-        new_pts = st.number_input("Pontuação (Negativo para perda, Positivo para ganho)", step=50)
-        if st.button("Salvar Nova Regra"):
-            ws_parametros.append_row([new_cat, new_sit, new_pts])
-            st.success("Regra cadastrada! Atualize a página.")
+    st.subheader("➕ Adicionar Novo Critério ou Situação")
+    with st.form("form_novos_params"):
+        n_cat = st.selectbox("Categoria do Novo Critério", ["1️⃣ Gestão Operacional", "2️⃣ Gestão de Pessoas", "3️⃣ Processos e Organização", "4️⃣ Resultado do Setor", "🚀 Recuperação / Extra"])
+        n_sit = st.text_input("Descrição da Situação")
+        n_pts = st.number_input("Valor da Pontuação (Use sinal de - para penalidades)", step=50)
+        if st.form_submit_button("Salvar Novo Parâmetro"):
+            if n_sit:
+                ws_parametros.append_row([n_cat, n_sit, n_pts])
+                st.success("Novo parâmetro salvo! O sistema irá ler este dado no próximo lançamento.")
+            else:
+                st.error("A descrição não pode estar vazia.")
 
 with st.sidebar:
-    st.header("Admin")
-    novo_g = st.text_input("Novo Gestor")
+    st.header("Gestão de Acesso")
+    novo_gestor_nome = st.text_input("Cadastrar Nome do Gestor")
     if st.button("Salvar Gestor"):
-        ws_gestores.append_row([novo_g])
-        st.rerun()
+        if novo_gestor_nome:
+            ws_gestores.append_row([novo_gestor_nome])
+            st.rerun()
