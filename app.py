@@ -159,17 +159,36 @@ with tab2:
             
             st.markdown("---")
             
-            # --- FILTRO DE HISTÓRICO ---
-            st.subheader("🔍 Filtrar Histórico Detalhado")
-            gestor_filtro = st.selectbox("Filtrar por Gestor para ver detalhes:", ["Todos"] + gestores)
+            # --- FILTRO E GRÁFICO DE ANÁLISE ---
+            st.subheader("🔍 Análise de Desempenho e Treinamento")
+            gestor_filtro = st.selectbox("Selecione o Gestor para análise detalhada:", ["Selecione..."] + gestores)
             
-            if gestor_filtro == "Todos":
-                df_filtrado = df_h
-            else:
-                df_filtrado = df_h[df_h['GESTOR'] == gestor_filtro]
-            
-            st.write(f"Exibindo {len(df_filtrado)} registros:")
-            st.dataframe(df_filtrado.sort_index(ascending=False), use_container_width=True)
+            if gestor_filtro != "Selecione...":
+                df_gestor = df_h[df_h['GESTOR'] == gestor_filtro].copy()
+                
+                if not df_gestor.empty:
+                    # Preparar dados para o gráfico (somar pontos negativos por categoria)
+                    # Filtramos apenas penalidades para focar onde o treinamento é necessário
+                    df_perdas = df_gestor[df_gestor['PONTOS'] < 0].copy()
+                    
+                    if not df_perdas.empty:
+                        st.write(f"### Onde o gestor {gestor_filtro} está perdendo mais pontos?")
+                        analise_cat = df_perdas.groupby('CATEGORIA')['PONTOS'].sum().abs().reset_index()
+                        analise_cat.columns = ['Categoria', 'Total de Pontos Perdidos']
+                        
+                        # Exibir gráfico de barras do Streamlit
+                        st.bar_chart(data=analise_cat, x='Categoria', y='Total de Pontos Perdidos')
+                        
+                        # Mensagem de Treinamento Automática baseada no maior erro
+                        maior_perda_cat = analise_cat.loc[analise_cat['Total de Pontos Perdidos'].idxmax(), 'Categoria']
+                        st.warning(f"💡 **Foco de Treinamento:** O gestor apresenta maior fragilidade em **{maior_perda_cat}**. Recomenda-se revisão de processos nesta área.")
+                    else:
+                        st.success(f"O gestor {gestor_filtro} ainda não possui penalidades registradas!")
+
+                    st.markdown("#### Histórico de Lançamentos")
+                    st.dataframe(df_gestor.sort_index(ascending=False), use_container_width=True)
+                else:
+                    st.info(f"O gestor {gestor_filtro} não possui histórico de lançamentos.")
             
         else:
             st.info("Nenhum registro de pontuação foi encontrado.")
