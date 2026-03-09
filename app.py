@@ -1,30 +1,24 @@
 import streamlit as st
 import pandas as pd
-from gspread_streamlit import gspread_connect
+import gspread
+from google.oauth2.service_account import Credentials
 from datetime import datetime
 
-# Configuração da página (deve ser o primeiro comando Streamlit)
-st.set_page_config(page_title="Gestão de Bônus - Marcenaria", layout="wide")
+# 1. Configuração da página
+st.set_page_config(page_title="Bônus Marcenaria", layout="wide")
 
-# Esconder menus do Streamlit para privacidade total
-st.markdown("""
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    </style>
-    """, unsafe_allow_html=True)
+# Esconder menus para privacidade
+st.markdown("<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}</style>", unsafe_allow_html=True)
 
-# --- SISTEMA DE LOGIN ---
+# 2. Sistema de Login
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
-
     if not st.session_state["password_correct"]:
-        st.title("🔐 Acesso Restrito")
-        senha_digitada = st.text_input("Digite a senha da Marcenaria", type="password")
+        st.title("🔐 Acesso Restrito - Marcenaria")
+        senha = st.text_input("Senha", type="password")
         if st.button("Entrar"):
-            if senha_digitada == st.secrets["general"]["password"]:
+            if senha == st.secrets["general"]["password"]:
                 st.session_state["password_correct"] = True
                 st.rerun()
             else:
@@ -33,87 +27,103 @@ def check_password():
     return True
 
 if check_password():
-    # --- CONEXÃO COM GOOGLE SHEETS ---
-    # Usando o segredo que configuramos
-    scope = ["https://www.googleapis.com/auth/spreadsheets"]
-    gc = gspread_connect(st.secrets["gspread"])
-    sh = gc.open_by_key(st.secrets["general"]["spreadsheet_id"])
+    # 3. Conexão Segura com Google Sheets
+    @st.cache_resource
+    def conectar_planilha():
+        # Transforma os segredos do Streamlit em credenciais do Google
+        info = {
+            "type": st.secrets["gspread"]["type"],
+            "project_id": st.secrets["gspread"]["project_id"],
+            "private_key_id": st.secrets["gspread"]["private_key_id"],
+            "private_key": st.secrets["gspread"]["private_key"],
+            "client_email": st.secrets["gspread"]["client_email"],
+            "client_id": st.secrets["gspread"]["client_id"],
+            "auth_uri": st.secrets["gspread"]["auth_uri"],
+            "token_uri": st.secrets["gspread"]["token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["gspread"]["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["gspread"]["client_x509_cert_url"],
+        }
+        creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        client = gspread.authorize(creds)
+        return client.open_by_key(st.secrets["general"]["spreadsheet_id"])
 
-    # Selecionar ou Criar abas se não existirem
-    def get_sheet(name):
-        try:
-            return sh.worksheet(name)
-        except:
-            return sh.add_worksheet(title=name, rows="100", cols="20")
-
-    ws_gestores = get_sheet("GESTORES")
-    ws_motivos = get_sheet("MOTIVOS")
-    ws_historico = get_sheet("HISTORICO")
-
-    st.title("🛠️ Sistema de Controle de Bônus")
-
-    # --- ABA DE CADASTROS (Sidebar) ---
-    with st.sidebar:
-        st.header("⚙️ Configurações")
+    try:
+        sh = conectar_planilha()
         
-        # Cadastro de Gestores
-        novo_g = st.text_input("Novo Gestor")
-        if st.button("Cadastrar Gestor"):
-            ws_gestores.append_row([novo_g])
-            st.success("Gestor salvo!")
+        # Funções para pegar as abas
+        def get_worksheet(name):
+            try:
+                return sh.worksheet(name)
+            except:
+                # Se a aba não existir, ele cria com cabeçalhos
+                new_ws = sh.add_worksheet(title=name, rows="1000", cols="10")
+                if name == "HISTORICO":
+                    new_ws.append_row(["DATA", "GESTOR", "MOTIVO", "PONTOS_PERDIDOS", "OBSERVACAO"])
+                return new_ws
 
+        ws_gestores = get_worksheet("GESTORES")
+        ws_motivos = get_worksheet("MOTIVOS")
+        ws_historico = get_worksheet("HISTORICO")
+
+        st.title("🛠️ Controle de Pontuação de Gestores")
+
+        # --- SIDEBAR: CADASTROS ---
+        with st.sidebar:
+            st.header("⚙️ Configurações")
+            novo_g = st.text_input("Nome do Gestor")
+            if st.button("Cadastrar Gestor") and novo_g:
+                ws_gestores.append_row([novo_g])
+                st.success(f"{novo_g} cadastrado!")
+            
+            st.markdown("---")
+            novo_m = st.text_input("Novo Motivo")
+            pontos_m = st.number_input("Pontos a perder", step=100)
+            if st.button("Cadastrar Motivo") and novo_m:
+                ws_motivos.append_row([novo_m, pontos_m])
+                st.success("Motivo salvo!")
+
+        # --- LANÇAMENTO ---
+        # Carrega dados atuais
+        gestores = [r[0] for r in ws_gestores.get_all_values() if r]
+        motivos_data = ws_motivos.get_all_values()
+        motivos_dict = {r[0]: int(r[1]) for r in motivos_data if len(r) > 1}
+
+        st.subheader("📝 Registrar Nova Ocorrência")
+        c1, c2 = st.columns(2)
+        with c1:
+            g_sel = st.selectbox("Quem perdeu pontos?", gestores if gestores else ["Nenhum cadastrado"])
+        with c2:
+            m_sel = st.selectbox("Qual o motivo?", list(motivos_dict.keys()) if motivos_dict else ["Nenhum cadastrado"])
+        
+        obs = st.text_area("Detalhes do ocorrido")
+        
+        if st.button("Salvar Registro", type="primary"):
+            if g_sel != "Nenhum cadastrado" and m_sel != "Nenhum cadastrado":
+                data_agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                ws_historico.append_row([data_agora, g_sel, m_sel, motivos_dict[m_sel], obs])
+                st.balloons()
+                st.success("Registrado com sucesso!")
+            else:
+                st.error("Erro: Cadastre gestores e motivos primeiro.")
+
+        # --- DASHBOARD ---
         st.markdown("---")
+        st.subheader("📊 Ranking de Bônus")
         
-        # Cadastro de Motivos
-        novo_m = st.text_input("Novo Motivo")
-        pontos_m = st.number_input("Pontos Negativos", step=100)
-        if st.button("Cadastrar Motivo"):
-            ws_motivos.append_row([novo_m, pontos_m])
-            st.success("Motivo salvo!")
-
-    # --- BUSCA DE DADOS ---
-    lista_gestores = [item for sublist in ws_gestores.get_all_values() for item in sublist]
-    lista_motivos_raw = ws_motivos.get_all_values()
-    dict_motivos = {row[0]: int(row[1]) for row in lista_motivos_raw if len(row) > 1}
-
-    # --- LANÇAMENTO ---
-    st.subheader("📝 Registrar Perda de Pontos")
-    c1, c2 = st.columns(2)
-    with c1:
-        g_sel = st.selectbox("Selecione o Gestor", lista_gestores if lista_gestores else ["Nenhum cadastrado"])
-    with c2:
-        m_sel = st.selectbox("Selecione o Motivo", list(dict_motivos.keys()) if dict_motivos else ["Nenhum cadastrado"])
-    
-    obs = st.text_area("Observação detalhada")
-    
-    if st.button("Salvar na Planilha", type="primary"):
-        if g_sel and m_sel in dict_motivos:
-            data_hoje = datetime.now().strftime("%d/%m/%Y %H:%M")
-            pontos = dict_motivos[m_sel]
-            ws_historico.append_row([data_hoje, g_sel, m_sel, pontos, obs])
-            st.warning(f"Dedução de {pontos} pontos registrada para {g_sel}!")
-        else:
-            st.error("Cadastre gestores e motivos primeiro!")
-
-    # --- DASHBOARD ---
-    st.markdown("---")
-    st.subheader("📊 Saldo de Bônus (Final de Ano)")
-    
-    dados_hist = ws_historico.get_all_records()
-    if dados_hist:
-        df = pd.DataFrame(dados_hist)
+        todos_registros = ws_historico.get_all_records()
+        df = pd.DataFrame(todos_registros)
         
-        resumo = []
-        for g in lista_gestores:
-            perda = df[df['GESTOR'] == g]['PONTOS_PERDIDOS'].astype(int).sum() if 'GESTOR' in df.columns else 0
+        ranking = []
+        for g in gestores:
+            perda = 0
+            if not df.empty and 'GESTOR' in df.columns:
+                perda = df[df['GESTOR'] == g]['PONTOS_PERDIDOS'].sum()
+            
             saldo = 10000 - perda
             perc = (saldo / 10000) * 100
-            resumo.append({
-                "Gestor": g,
-                "Saldo Atual": saldo,
-                "Bônus %": f"{max(0, perc):.1f}%"
-            })
+            ranking.append({"Gestor": g, "Saldo": saldo, "Bônus %": f"{max(0, perc):.1f}%"})
         
-        st.table(pd.DataFrame(resumo))
-    else:
-        st.info("Nenhum registro no histórico. Todos os gestores possuem 100%.")
+        st.table(pd.DataFrame(ranking))
+
+    except Exception as e:
+        st.error(f"Erro de conexão: Verifique se compartilhou a planilha com o e-mail do JSON. {e}")
