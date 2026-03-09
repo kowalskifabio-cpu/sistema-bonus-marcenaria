@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import time
 
 # 1. Configuração da página
 st.set_page_config(page_title="Gestão de Bônus Marcenaria", layout="wide")
@@ -46,13 +47,21 @@ def conectar():
 sh = conectar()
 
 def get_ws(name, headers=None):
+    """Tenta buscar a aba. Se falhar por não existir, cria. Se falhar por API, aguarda."""
     try:
         return sh.worksheet(name)
-    except:
-        ws = sh.add_worksheet(title=name, rows="1000", cols="10")
-        if headers:
-            ws.append_row(headers)
-        return ws
+    except gspread.exceptions.WorksheetNotFound:
+        try:
+            ws = sh.add_worksheet(title=name, rows="1000", cols="10")
+            if headers:
+                ws.append_row(headers)
+            return ws
+        except Exception as e:
+            st.error(f"Erro ao criar a aba {name}. Verifique se ela já existe manualmente.")
+            return sh.worksheet(name) # Tentativa final de resgate
+    except Exception as e:
+        time.sleep(2) # Pequena pausa para evitar limites da API
+        return sh.worksheet(name)
 
 ws_gestores = get_ws("GESTORES")
 ws_historico = get_ws("HISTORICO", ["DATA", "GESTOR", "CATEGORIA", "ACAO", "PONTOS", "TIPO", "OBS"])
@@ -198,7 +207,6 @@ with tab2:
 with tab3:
     st.subheader("📜 Regras de Transparência")
     
-    # --- NOVA TABELA DE FAIXAS DE BÔNUS ---
     st.markdown("### 🎯 Faixas de Pontuação e Bônus")
     faixas_data = {
         "Pontuação Final": ["9.500 – 10.000", "9.000 – 9.499", "8.500 – 8.999", "8.000 – 8.499", "7.500 – 7.999", "< 7.500"],
